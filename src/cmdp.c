@@ -44,6 +44,7 @@ static int parse(char *cmd, char **argv){
 void eval(char *cmd, char **argv){
     int bg = 0;
     int asize = parse(cmd, argv);
+    if (argv[0] == NULL) return;
     if (!strcmp(argv[0], "exit") || feof(stdin))
         exit(0);
     if (!strcmp(argv[asize-1], "&")){
