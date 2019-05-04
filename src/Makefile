@@ -4,7 +4,9 @@ CFLAGS=-Wall -g
 LFLAGS=-L../lib
 LIBS=
 
-SRCS=icshell.c cmdp.c process.c
+OPTIONS=-D_POSIX_C_SOURCE=200809L
+
+SRCS=icshell.c #cmdp.c process.c
 
 IDIR=../include
 _DEPS=
@@ -22,10 +24,10 @@ MAIN=icshell
 all: $(MAIN)
 
 $(ODIR)/%.o: %.c $(DEPS)
-	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $< 
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTIONS) -c -o $@ $< 
 
 $(MAIN): $(OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTIONS) -o $@ $^ $(LFLAGS) $(LIBS)
 
 clean: 
 	rm -f $(ODIR)/*.o *~ $(MAIN)
