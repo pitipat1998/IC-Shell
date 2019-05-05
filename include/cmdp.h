@@ -1,1 +1,1 @@
-void eval(char *cmd, char **argv);
+int parse(char *cmd, char **argv);

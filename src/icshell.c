@@ -8,22 +8,131 @@
 #include <ctype.h>
 #include <string.h>
 
+#include <cmdp.h>
+#include <psignal.h>
+
 /****************************************************
  ********************* MACROS ***********************
  ****************************************************/
 #define MAXLINE 1024
 #define MAXSIZE 64
 
+typedef struct process
+{
+    struct process *next;
+    char **argv;
+    pid_t pid;
+    int status;
+} process;
+
 pid_t shell_pgid;
-char cmd[MAXLINE];
-char *argv[MAXSIZE];
+process *phead = NULL;
 
-int child_notification(pid_t pid, int wstatus);
+void child_handler(int sig);
+void sig_handler(int sig);
+static void init_shell();
+static void eval(char *cmd);
+static int builtin_command(char **argv);
+static void execute(int bg, char **argv);
+static int child_notification(process *cp);
+static process *find_process(pid_t pid);
 
-void execute(int bg, char **argv){
+
+int main()
+{
+    init_shell();
+    while (1){
+        char cmd[MAXLINE];
+        printf("icsh> ");
+        fgets(cmd, MAXLINE, stdin);        
+        if(feof(stdin)){
+            exit(0);
+        }
+        eval(cmd);
+    }
+    return 0;
+}
+
+void child_handler(int sig)
+{
     pid_t pid;
     int wstatus;
-    
+    while((pid = waitpid(-1, &wstatus, WUNTRACED | WNOHANG)) > 0){
+        //process *cp = find_process(pid);
+        //int stp = child_notification(cp);
+        //if(stp)
+        //    break;
+    }
+    kill(shell_pgid, SIGCONT);
+}
+
+void sig_handler(int sig)
+{
+    switch(sig){
+        case SIGCHLD:
+            child_handler(sig);            
+            break;
+    }
+}
+
+void init_shell()
+{
+        struct sigaction action;
+        action.sa_handler = sig_handler;
+        action.sa_flags = SA_RESTART;
+        sigfillset(&action.sa_mask);
+
+        Signal(SIGCHLD, sig_handler);
+        signal(SIGINT, SIG_IGN);
+        signal(SIGTSTP, SIG_IGN);
+        signal(SIGQUIT, SIG_IGN);
+        signal(SIGTTIN, SIG_IGN);
+        signal(SIGTTOU, SIG_IGN);
+
+        shell_pgid = getpid();
+        if(setpgid(shell_pgid, shell_pgid) < 0){
+            perror("setpgid failed");
+            exit(1);
+        }
+
+        tcsetpgrp(0, shell_pgid);
+}
+
+void eval(char *cmd)
+{
+    char *argv[MAXSIZE];
+    char buf[MAXLINE];
+    int bg;
+
+    strcpy(buf, cmd);
+    bg = parse(buf, argv);
+    if (argv[0] == NULL) return;
+
+    if(!builtin_command(argv)){
+        execute(bg, argv);
+    }
+}
+
+int builtin_command(char **argv)
+{
+    if (!strcmp(argv[0], "exit")){
+        exit(0);
+    }
+    if (!strcmp(argv[0], "&")){
+        return 1;
+    }
+    return 0;
+}
+
+void execute(int bg, char **argv)
+{
+    pid_t pid;
+    process cp;
+    cp.next = phead;
+    cp.status = -1;
+    cp.argv = argv;
+    phead = &cp;
+
     pid = fork();
     if (pid < 0){
         perror("***ERROR: fork failed\n");
@@ -40,7 +149,6 @@ void execute(int bg, char **argv){
         if(!bg)
             tcsetpgrp(0, getpid());
 
-        printf("handle PID=%d\n", getpid());
         if(execvp(argv[0], argv) < 0){
             printf("***ERROR: exec failed\n");
             exit(1);
@@ -48,127 +156,44 @@ void execute(int bg, char **argv){
     }
     else{
         setpgid(pid, pid);
+        printf("PID=%d\n", pid);
+        cp.pid = pid;
         if(!bg){
             tcsetpgrp(0, pid);
-            waitpid(-pid, &wstatus, WUNTRACED); 
-            child_notification(pid, wstatus);
+            pause();
+            //waitpid(-pid, &cp.status, WUNTRACED); 
+            //child_notification(&cp);
             tcsetpgrp(0, shell_pgid);
         }
     }
 }
-static char *trim(char *str){
 
-    char *end;
-
-    while (isspace((unsigned char) *str)) str++;
-
-    if(!*str) 
-        return str;
-    
-    end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char) *end)) end--;
-
-    end[1] = '\0';
-    return str;
-}
-
-static int parse(char *cmd, char **argv){
-    cmd[strcspn(cmd, "\n")] = 0;
-    cmd = trim(cmd);
-
-    int i = 0;
-    char *pattern = " \t\n";
-    char *p = strtok(cmd, pattern);
-    while (p != NULL) {
-        argv[i++] = p;
-        p = strtok(NULL, pattern);
+int child_notification(process *cp)
+{
+    if (WIFEXITED(cp->status)){
+        printf("%d exited, status=%d\n", cp->pid, WEXITSTATUS(cp->status));
     }
-
-    for(int j=0; j<i; j++){
-        argv[j] = trim(argv[j]);
+    else if (WIFSIGNALED(cp->status)){
+        printf("%d killed by signal %d\n", cp->pid, WTERMSIG(cp->status));
     }
-
-    argv[i] = '\0';
-    return i;
-}
-
-void eval(char *cmd, char **argv){
-    int bg = 0;
-    int asize = parse(cmd, argv);
-    if (argv[0] == NULL) return;
-    if (!strcmp(argv[0], "exit")){
-        exit(0);
-    }
-    if (!strcmp(argv[asize-1], "&")){
-        bg = 1;
-        argv[asize-1] = '\0';
-    }
-    execute(bg, argv);
-}
-
-int child_notification(pid_t pid, int wstatus){
-    if (WIFEXITED(wstatus)){
-        printf("%d exited, status=%d\n", pid, WEXITSTATUS(wstatus));
-    }
-    else if (WIFSIGNALED(wstatus)){
-        printf("%d killed by signal %d\n", pid, WTERMSIG(wstatus));
-    }
-    else if (WIFSTOPPED(wstatus)){
-        printf("%d stopped by signal %d\n", pid, WSTOPSIG(wstatus));
+    else if (WIFSTOPPED(cp->status)){
+        printf("%d stopped by signal %d\n", cp->pid, WSTOPSIG(cp->status));
         return 0;
     }
-    else if (WIFCONTINUED(wstatus)){
-        printf("%d continued\n", pid);
+    else if (WIFCONTINUED(cp->status)){
+        printf("%d continued\n", cp->pid);
     }
     return -1;
 }
 
-void sig_handler(int sig){
-    pid_t pid;
-    int wstatus;
-    switch(sig){
-        case SIGCHLD:
-            while((pid = waitpid(-1, &wstatus, 0)) > 0){
-                int stp = child_notification(pid, wstatus);
-                if(stp)
-                    break;
-            }
-            break;
+static process *find_process(pid_t pid)
+{
+    process *p = phead;
+    while(p){
+        if(p->pid == pid)
+            return p;
+        printf("pid=%d, p->pid=%d\n", pid, p->pid);
+        p = p->next; 
     }
-}
-
-void init_shell(){
-        struct sigaction action;
-        action.sa_handler = sig_handler;
-        action.sa_flags = SA_RESTART;
-        sigfillset(&action.sa_mask);
-
-        if(sigaction(SIGCHLD, &action, NULL))
-            perror("***ERROR: SIGCHLD handler\n");
-        signal(SIGINT, SIG_IGN);
-        signal(SIGTSTP, SIG_IGN);
-        signal(SIGQUIT, SIG_IGN);
-        signal(SIGTTIN, SIG_IGN);
-        signal(SIGTTOU, SIG_IGN);
-
-        shell_pgid = getpid();
-        if(setpgid(shell_pgid, shell_pgid) < 0){
-            perror("setpgid failed");
-            exit(1);
-        }
-
-        tcsetpgrp(0, shell_pgid);
-}
-
-int main(){
-    init_shell();
-    while (1){
-        printf("icsh> ");
-        fgets(cmd, MAXLINE, stdin);        
-        if(feof(stdin)){
-            exit(0);
-        }
-        eval(cmd, argv);
-    }
-    return 0;
+    return NULL;
 }

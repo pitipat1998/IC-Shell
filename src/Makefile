@@ -6,7 +6,7 @@ LIBS=
 
 OPTIONS=-D_POSIX_C_SOURCE=200809L
 
-SRCS=icshell.c #cmdp.c process.c
+SRCS=icshell.c cmdp.c psignal.c #process.c
 
 IDIR=../include
 _DEPS=
