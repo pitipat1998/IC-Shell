@@ -19,30 +19,29 @@ static char *trim(char *str)
     return str;
 }
 
-int parse(char *cmd, char **argv)
+int parse(char *cmd, char **argv, int *argc)
 {
-    int argc;
     int bg;
 
     cmd[strcspn(cmd, "\n")] = 0;
     cmd = trim(cmd);
 
-    argc = 0;
+    *argc = 0;
     char *pattern = " \t\n";
     char *p = strtok(cmd, pattern);
     while (p != NULL) {
-        argv[argc++] = p;
+        argv[(*argc)++] = p;
         p = strtok(NULL, pattern);
     }
-    for(int j=0; j<argc; j++){
+    for(int j=0; j<*argc; j++){
         argv[j] = trim(argv[j]);
     }
-    argv[argc] = NULL;
+    argv[*argc] = NULL;
 
-    if (argc == 0) return 1;
+    if (*argc == 0) return 1;
 
-    if((bg = (*argv[argc-1] == '&')) != 0)
-        argv[--argc] = NULL;
+    if((bg = (*argv[(*argc)-1] == '&')) != 0)
+        argv[--(*argc)] = NULL;
 
     return bg;
 }

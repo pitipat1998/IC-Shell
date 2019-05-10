@@ -1,1 +1,1 @@
-int parse(char *cmd, char **argv);
+int parse(char *buf, char **argv, int *argc);
