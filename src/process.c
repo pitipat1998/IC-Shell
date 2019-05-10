@@ -21,7 +21,7 @@ void free_process(process *p)
     free(p);
 }
 
-process *create_process(char *cmd, int argc, char **argv, int exec_mode)
+process *create_process(char *cmd, int argc, char **argv, int exec_mode, int in_fd, int out_fd)
 {
     process *p = (process *) malloc(sizeof(process));
     p->id = -1;
@@ -29,6 +29,8 @@ process *create_process(char *cmd, int argc, char **argv, int exec_mode)
     p->argc = argc;
     p->argv = argv;
     p->exec_mode = exec_mode;
+    p->in_fd = in_fd;
+    p->out_fd = out_fd;
     p->pid = PROC_RUNNING;
     p->status = 0;
     p->prev = NULL;

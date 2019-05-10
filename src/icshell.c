@@ -8,6 +8,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <stddef.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <cmdp.h>
 #include <psignal.h>
@@ -35,7 +37,7 @@ void sig_handler(int sig);
 //Processing Commands
 static void eval(char *cmd);
 static int builtin_command(int bg, int argc, char **argv);
-static void execute_external_command(int bg, char *cmd, int argc, char **argv);
+static void execute_external_command(int bg, char *cmd, int argc, char **argv, int in_fd, int out_fd);
 
 //Process Manipulation
 void put_process_in_foreground(process *p, int cont);
@@ -113,6 +115,8 @@ void eval(char *cmd)
     char *argv[MAXSIZE];
     char buf[MAXLINE];
     int bg;
+    int in_fd = 0;
+    int out_fd = 1;
 
     strcpy(buf, cmd);
     bg = parse(buf, argv, &argc);
@@ -120,8 +124,18 @@ void eval(char *cmd)
         return;
     }
 
+    for(int i = 0; i < argc; i++){
+        if(!strcmp(argv[i], ">") && argv[i+1] != NULL){
+            out_fd = open(argv[i+1], O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
+            argv[i] = NULL;
+        }
+        else if(!strcmp(argv[i], "<") && argv[i+1] != NULL){
+            in_fd = open(argv[i+1], O_RDONLY);
+            argv[i] = NULL;
+        }
+    }
     if(!builtin_command(bg, argc, argv)){
-        execute_external_command(bg, cmd, argc, argv);
+        execute_external_command(bg, cmd, argc, argv, in_fd, out_fd);
     }
 }
 
@@ -210,14 +224,14 @@ void put_process_in_background(process *p, int cont)
     p->status = PROC_RUNNING;
 }
 
-void execute_external_command(int bg, char *buf, int argc, char **argv)
+void execute_external_command(int bg, char *buf, int argc, char **argv, int in_fd, int out_fd)
 {
     char *cmd = (char *) malloc(sizeof(char) * MAXLINE);
     strcpy(cmd, buf);
     pid_t pid;
     sigset_t mask;
-    process *p = create_process(cmd, argc, argv, bg);
-    
+    process *p = create_process(cmd, argc, argv, bg, in_fd, out_fd);
+
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &mask, NULL);
@@ -236,6 +250,15 @@ void execute_external_command(int bg, char *buf, int argc, char **argv)
         Signal(SIGTTIN, SIG_DFL);
         Signal(SIGTTOU, SIG_DFL);
         Signal(SIGCHLD, SIG_DFL);
+        
+        if(in_fd != 0){
+            dup2(in_fd, 0);
+            close(in_fd);
+        }
+        if(out_fd != 1){
+            dup2(out_fd, 1);
+            close(out_fd);
+        }
 
         if(execvp(argv[0], argv) < 0){
             free(cmd);

@@ -9,7 +9,7 @@
 #define PROC_STOPPED    3 
 #define PROC_CONTINUED  4 
 
-process *create_process(char *cmd, int argc, char **argv, int exec_mode);
+process *create_process(char *cmd, int argc, char **argv, int exec_mode, int in_fd, int out_fd);
 void add_process(process *p);
 int launch_process(process *p);
 void fg_exit(int wstatus);
