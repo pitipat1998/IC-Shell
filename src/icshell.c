@@ -88,6 +88,9 @@ void sig_handler(int sig)
 
 void init_shell()
 {
+
+        int status;
+        
         struct sigaction action;
         action.sa_handler = sig_handler;
         action.sa_flags = SA_RESTART;
@@ -101,9 +104,9 @@ void init_shell()
         Signal(SIGTTOU, SIG_IGN);
 
         shell_pgid = getpid();
-        if(setpgid(shell_pgid, shell_pgid) < 0){
+        if((status = setpgid(shell_pgid, shell_pgid)) < 0){
             perror("setpgid failed");
-            exit(1);
+            exit(status);
         }
 
         tcsetpgrp(0, shell_pgid);
@@ -182,12 +185,14 @@ void wait_for_process(process *p)
     else if (WIFSIGNALED(wstatus)){
         set_process_status(p, PROC_TERMINATED);
         if(p->exec_mode == PROC_FOREGROUND)
-            fg_exit(WTERMSIG(wstatus));
+            fg_exit(128+WTERMSIG(wstatus));
         remove_process_by_pid(p->pid);
     }
     else if (WIFSTOPPED(wstatus)){
         tcsetpgrp(0, p->pid);
         set_process_status(p, PROC_STOPPED);
+        if(p->exec_mode == PROC_FOREGROUND)
+            fg_exit(128+WSTOPSIG(wstatus));
         print_process_status(p);
     }
 }
@@ -227,6 +232,7 @@ void put_process_in_background(process *p, int cont)
 void execute_external_command(int bg, char *buf, int argc, char **argv, int in_fd, int out_fd)
 {
     char *cmd = (char *) malloc(sizeof(char) * MAXLINE);
+    int status;
     strcpy(cmd, buf);
     pid_t pid;
     sigset_t mask;
@@ -240,7 +246,7 @@ void execute_external_command(int bg, char *buf, int argc, char **argv, int in_f
     if (pid < 0){
         free(cmd);
         perror("***ERROR: fork failed\n");
-        exit(1);
+        exit(-pid);
     }
     else if (pid == 0){
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
@@ -260,10 +266,10 @@ void execute_external_command(int bg, char *buf, int argc, char **argv, int in_f
             close(out_fd);
         }
 
-        if(execvp(argv[0], argv) < 0){
+        if((status = execvp(argv[0], argv)) < 0){
             free(cmd);
             printf("***ERROR: exec failed\n");
-            exit(1);
+            exit(127);
         }
     }
     else{
@@ -293,12 +299,14 @@ static void child_notification(process *p, int wstatus)
     else if (WIFSIGNALED(wstatus)){
         set_process_status(p, PROC_TERMINATED);
         if(p->status == PROC_FOREGROUND)
-            fg_exit(WTERMSIG(wstatus));        
+            fg_exit(128+WTERMSIG(wstatus));        
         print_process_status(p);
         remove_process_by_pid(p->pid);
     }
     else if (WIFSTOPPED(wstatus)){
         tcsetpgrp(0, shell_pgid);
+        if(p->status == PROC_FOREGROUND)
+            fg_exit(128+WTERMSIG(wstatus));        
         set_process_status(p, PROC_STOPPED);
         print_process_status(p);
     }
@@ -310,7 +318,7 @@ void exit_shell()
     for(process *p = process_head; p; p=p->next){
         kill(p->pid, SIGKILL);
     }
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
 
 void echo_latest_process()
